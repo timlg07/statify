@@ -17,6 +17,7 @@ program
   .option('--user-agent <string>', 'Custom User-Agent string')
   .option('--no-js', 'Disable JavaScript rendering')
   .option('--max-depth <n>', 'Maximum crawl depth from homepage (default: unlimited)', parseInt)
+  .option('-s, --show', 'Show browser window (non-headless mode)')
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (url, options) => {
     // Validate and normalize URL
@@ -51,6 +52,7 @@ program
       userAgent: options.userAgent,
       noJs: !options.js, // Commander's --no-js sets options.js = false
       maxDepth: options.maxDepth ?? Infinity,
+      show: options.show,
       verbose: options.verbose,
     });
 

@@ -35,6 +35,12 @@ export class UrlRewriter {
   rewriteHtml(html, pageFilePath, pageUrl) {
     const $ = cheerio.load(html, { decodeEntities: false });
 
+    // Ensure directory-like URLs end with '/' so relative URL resolution works correctly.
+    // Without this, 'https://example.com/home' + 'stylesheets/style.css' resolves to
+    // 'https://example.com/stylesheets/style.css' instead of
+    // 'https://example.com/home/stylesheets/style.css'
+    const baseUrl = this._ensureTrailingSlash(pageUrl);
+
     // Attributes that may contain URLs
     const urlAttributes = [
       { selector: '[href]', attr: 'href' },
@@ -53,7 +59,7 @@ export class UrlRewriter {
           return;
         }
 
-        const rewritten = this._resolveAndRewrite(val, pageUrl, pageFilePath);
+        const rewritten = this._resolveAndRewrite(val, baseUrl, pageFilePath);
         if (rewritten !== null) {
           $(el).attr(attr, rewritten);
         }
@@ -70,7 +76,7 @@ export class UrlRewriter {
         if (parts.length === 0) return entry;
         const url = parts[0];
         const descriptor = parts.slice(1).join(' ');
-        const newUrl = this._resolveAndRewrite(url, pageUrl, pageFilePath);
+        const newUrl = this._resolveAndRewrite(url, baseUrl, pageFilePath);
         return (newUrl !== null ? newUrl : url) + (descriptor ? ' ' + descriptor : '');
       }).join(', ');
 
@@ -82,7 +88,7 @@ export class UrlRewriter {
       const style = $(el).attr('style');
       if (!style || !style.includes('url(')) return;
 
-      const rewritten = this._rewriteCssUrls(style, pageUrl, pageFilePath);
+      const rewritten = this._rewriteCssUrls(style, baseUrl, pageFilePath);
       $(el).attr('style', rewritten);
     });
 
@@ -90,7 +96,7 @@ export class UrlRewriter {
     $('style').each((_, el) => {
       const css = $(el).html();
       if (!css || !css.includes('url(')) return;
-      $(el).html(this._rewriteCssUrls(css, pageUrl, pageFilePath));
+      $(el).html(this._rewriteCssUrls(css, baseUrl, pageFilePath));
     });
 
     return $.html();
@@ -173,6 +179,24 @@ export class UrlRewriter {
     });
 
     return css;
+  }
+
+  /**
+   * Ensure a URL ends with '/' if its path looks like a directory (no file extension).
+   * This is critical for correct relative URL resolution.
+   */
+  _ensureTrailingSlash(urlStr) {
+    try {
+      const parsed = new URL(urlStr);
+      const lastSegment = parsed.pathname.split('/').pop() || '';
+      const hasExtension = lastSegment.includes('.') && !lastSegment.startsWith('.');
+      if (!hasExtension && !parsed.pathname.endsWith('/')) {
+        parsed.pathname += '/';
+      }
+      return parsed.href;
+    } catch {
+      return urlStr;
+    }
   }
 
   /**
