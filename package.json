@@ -1,0 +1,22 @@
+{
+  "name": "statify",
+  "version": "1.0.0",
+  "description": "CLI tool to scrape CMS-based websites and generate deployable static copies",
+  "type": "module",
+  "bin": {
+    "statify": "./bin/statify.js"
+  },
+  "scripts": {
+    "start": "node bin/statify.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "commander": "^12.1.0",
+    "mime-types": "^2.1.35",
+    "p-limit": "^6.1.0",
+    "puppeteer": "^23.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
