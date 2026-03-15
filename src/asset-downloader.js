@@ -145,4 +145,12 @@ export class AssetDownloader {
   getAssetMap() {
     return this.downloadedAssets;
   }
+
+  /**
+   * Restore the downloaded asset map from a saved state.
+   * @param {Map<string, string>} map 
+   */
+  setAssetMap(map) {
+    this.downloadedAssets = map;
+  }
 }

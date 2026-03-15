@@ -16,7 +16,7 @@ program
   .option('-t, --timeout <ms>', 'Navigation timeout per page in milliseconds', parseInt, 30000)
   .option('--user-agent <string>', 'Custom User-Agent string')
   .option('--no-js', 'Disable JavaScript rendering')
-  .option('--max-depth <n>', 'Maximum crawl depth from homepage (default: unlimited)', parseInt)
+  .option('-r, --resume', 'Resume a previously interrupted crawl from .statify-state.json')
   .option('-s, --show', 'Show browser window (non-headless mode)')
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (url, options) => {
@@ -52,6 +52,7 @@ program
       userAgent: options.userAgent,
       noJs: !options.js, // Commander's --no-js sets options.js = false
       maxDepth: options.maxDepth ?? Infinity,
+      resume: options.resume || false,
       show: options.show,
       verbose: options.verbose,
     });

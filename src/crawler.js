@@ -1,6 +1,7 @@
 import puppeteer from 'puppeteer';
 import pLimit from 'p-limit';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { posix } from 'node:path';
 import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger } from './utils.js';
 import { AssetDownloader } from './asset-downloader.js';
@@ -33,6 +34,7 @@ export class Crawler {
     this.maxDepth = options.maxDepth ?? Infinity;
     this.verbose = options.verbose || false;
     this.show = options.show || false;
+    this.resume = options.resume || false;
 
     const parsedStart = new URL(this.startUrl);
     this.origin = parsedStart.origin;
@@ -81,9 +83,18 @@ export class Crawler {
     });
 
     try {
+      let stateLoaded = false;
+      if (this.resume) {
+        stateLoaded = await this._loadState();
+      }
+
       // Phase 1: Crawl all pages
-      this.logger.info('--- Phase 1: Crawling pages ---');
-      await this._crawlPages(browser);
+      if (!stateLoaded || this.queue.length > 0 || this.failedPages.length > 0) {
+        this.logger.info('--- Phase 1: Crawling pages ---');
+        await this._crawlPages(browser);
+      } else {
+        this.logger.info('--- Phase 1: Crawling pages (Already completed) ---');
+      }
 
       // Phase 2: Rewrite URLs in all saved content
       this.logger.info('--- Phase 2: Rewriting URLs ---');
@@ -93,6 +104,7 @@ export class Crawler {
       this.logger.info('--- Phase 3: Generating redirects ---');
       await this._generateRedirects();
 
+      await this._clearState();
       this.logger.success(`Crawl complete! ${this.pageMap.size} pages, ${this.assetDownloader.getAssetMap().size} assets, ${this.redirects.length} redirect(s) saved.`);
       this.logger.info(`Output: ${this.outputDir}`);
     } finally {
@@ -109,9 +121,13 @@ export class Crawler {
    */
   async _crawlPages(browser) {
     const limit = pLimit(this.concurrency);
-    const normalized = normalizeUrl(this.startUrl, this.origin);
-    this.queue.push({ url: normalized, depth: 0 });
-    this.visited.set(normalized, 0);
+    
+    // Only initialize start URL if we haven't visited anything (e.g. not resuming)
+    if (this.visited.size === 0) {
+      const normalized = normalizeUrl(this.startUrl, this.origin);
+      this.queue.push({ url: normalized, depth: 0 });
+      this.visited.set(normalized, 0);
+    }
 
     let hasRetried = false;
 
@@ -128,6 +144,9 @@ export class Crawler {
         limit(() => this._processPage(browser, url, depth, isRetry))
       );
       await Promise.all(promises);
+      
+      // Save state after each batch completes
+      await this._saveState();
     }
   }
 
@@ -485,5 +504,71 @@ export class Crawler {
    */
   _escapePhp(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  /**
+   * Save the current state to a JSON file to allow resuming.
+   */
+  async _saveState() {
+    try {
+      const stateFile = this.outputDir + '/.statify-state.json';
+      const state = {
+        queue: this.queue,
+        visited: Array.from(this.visited.entries()),
+        pageMap: Array.from(this.pageMap.entries()),
+        redirects: this.redirects,
+        failedPages: this.failedPages,
+        downloadedAssets: Array.from(this.assetDownloader.getAssetMap().entries())
+      };
+      await saveFile(stateFile, JSON.stringify(state));
+    } catch (e) {
+      this.logger.debug(`Failed to save state: ${e.message}`);
+    }
+  }
+
+  /**
+   * Load state from JSON file if it exists.
+   */
+  async _loadState() {
+    try {
+      const stateFile = this.outputDir + '/.statify-state.json';
+      if (!existsSync(stateFile)) {
+        this.logger.warn('State file not found. Starting fresh crawl.');
+        return false;
+      }
+      
+      const data = await readFile(stateFile, 'utf-8');
+      const state = JSON.parse(data);
+
+      this.queue = state.queue || [];
+      this.visited = new Map(state.visited || []);
+      this.pageMap = new Map(state.pageMap || []);
+      this.redirects = state.redirects || [];
+      this.failedPages = state.failedPages || [];
+      
+      if (state.downloadedAssets) {
+        this.assetDownloader.setAssetMap(new Map(state.downloadedAssets));
+      }
+
+      this.logger.info(`Resumed state: ${this.visited.size} pages visited, ${this.queue.length} left in queue. Assets: ${this.assetDownloader.getAssetMap().size}.`);
+      return true;
+    } catch (e) {
+      this.logger.error(`Error loading state: ${e.message}. Starting fresh crawl.`);
+      return false;
+    }
+  }
+
+  /**
+   * Clear the state file when the crawl successfully finishes.
+   */
+  async _clearState() {
+    try {
+      const stateFile = this.outputDir + '/.statify-state.json';
+      if (existsSync(stateFile)) {
+        await unlink(stateFile);
+      }
+    } catch (e) {
+      this.logger.debug(`Failed to clear state file: ${e.message}`);
+    }
   }
 }
