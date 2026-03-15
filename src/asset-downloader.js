@@ -11,11 +11,13 @@ export class AssetDownloader {
    * @param {string} origin - The origin of the site being scraped (e.g. "https://example.com")
    * @param {string} outputDir - Absolute path to the output directory
    * @param {Logger} logger
+   * @param {Function} [onRedirect] - Optional callback triggered on HTTP redirects (fromUrl, toFilePath)
    */
-  constructor(origin, outputDir, logger) {
+  constructor(origin, outputDir, logger, onRedirect = null) {
     this.origin = origin;
     this.outputDir = outputDir;
     this.logger = logger;
+    this.onRedirect = onRedirect;
 
     /** @type {Map<string, string>} Maps original absolute URL → local file path (relative to outputDir) */
     this.downloadedAssets = new Map();

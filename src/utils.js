@@ -176,75 +176,83 @@ export async function saveFile(filePath, content) {
   await writeFile(filePath, content);
 }
 
-/**
- * Download a file from a URL to a destination path.
- * Returns true on success, false on failure.
- */
-export function downloadFile(url, dest, retries = 2) {
+export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, retries = 2) {
   return new Promise(async (resolve) => {
-    await ensureDir(dirname(dest));
+    const isDynamic = typeof urlToFilePathFunc === 'function';
+    let dest = isDynamic ? null : destOrOutputDir;
+    let finalUrl = url;
+    let redirected = false;
 
-    const attempt = (remaining) => {
-      const client = url.startsWith('https') ? https : http;
-      const request = client.get(url, { timeout: 30000 }, (res) => {
+    if (!isDynamic) {
+      await ensureDir(dirname(dest));
+    }
+
+    const attempt = (remaining, currentUrl) => {
+      const client = currentUrl.startsWith('https') ? https : http;
+      const request = client.get(currentUrl, { timeout: 30000 }, (res) => {
         // Follow redirects
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          const redirectUrl = new URL(res.headers.location, url).href;
+          redirected = true;
+          const redirectUrl = new URL(res.headers.location, currentUrl).href;
           res.resume(); // consume the response
           if (remaining > 0) {
-            const redirectClient = redirectUrl.startsWith('https') ? https : http;
-            redirectClient.get(redirectUrl, { timeout: 30000 }, (redirectRes) => {
-              handleResponse(redirectRes, remaining);
-            }).on('error', () => resolve(false));
+            attempt(remaining - 1, redirectUrl);
           } else {
-            resolve(false);
+            resolve({ success: false });
           }
           return;
         }
 
-        handleResponse(res, remaining);
+        const handleResponse = async (response) => {
+          if (response.statusCode !== 200) {
+            response.resume();
+            if (remaining > 0) attempt(remaining - 1, currentUrl);
+            else resolve({ success: false });
+            return;
+          }
+
+          if (isDynamic) {
+            const result = urlToFilePathFunc(currentUrl, destOrOutputDir);
+            dest = result.fullPath;
+            finalUrl = currentUrl;
+          }
+
+          try {
+            await ensureDir(dirname(dest));
+            const chunks = [];
+            const writable = new Writable({
+              write(chunk, encoding, callback) {
+                chunks.push(chunk);
+                callback();
+              }
+            });
+
+            await pipeline(response, writable);
+            const buffer = Buffer.concat(chunks);
+            await saveFile(dest, buffer);
+            resolve({ success: true, finalUrl, redirected });
+          } catch {
+            if (remaining > 0) attempt(remaining - 1, currentUrl);
+            else resolve({ success: false });
+          }
+        };
+
+        handleResponse(res);
       });
 
       request.on('error', () => {
-        if (remaining > 0) attempt(remaining - 1);
-        else resolve(false);
+        if (remaining > 0) attempt(remaining - 1, currentUrl);
+        else resolve({ success: false });
       });
 
       request.on('timeout', () => {
         request.destroy();
-        if (remaining > 0) attempt(remaining - 1);
-        else resolve(false);
+        if (remaining > 0) attempt(remaining - 1, currentUrl);
+        else resolve({ success: false });
       });
     };
 
-    const handleResponse = async (res, remaining) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        if (remaining > 0) attempt(remaining - 1);
-        else resolve(false);
-        return;
-      }
-
-      try {
-        const chunks = [];
-        const writable = new Writable({
-          write(chunk, encoding, callback) {
-            chunks.push(chunk);
-            callback();
-          }
-        });
-
-        await pipeline(res, writable);
-        const buffer = Buffer.concat(chunks);
-        await saveFile(dest, buffer);
-        resolve(true);
-      } catch {
-        if (remaining > 0) attempt(remaining - 1);
-        else resolve(false);
-      }
-    };
-
-    attempt(retries);
+    attempt(retries, url);
   });
 }
 

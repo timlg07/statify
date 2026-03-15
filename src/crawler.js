@@ -3,6 +3,8 @@ import pLimit from 'p-limit';
 import { readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { posix } from 'node:path';
+import http from 'node:http';
+import https from 'node:https';
 import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger, isAssetUrl } from './utils.js';
 import { AssetDownloader } from './asset-downloader.js';
 import { UrlRewriter } from './url-rewriter.js';
@@ -151,12 +153,52 @@ export class Crawler {
   }
 
   /**
+   * Performs a fast HTTP HEAD request to determine if the URL returns HTML.
+   * If it returns a file download (like a PDF or ZIP from a PHP script),
+   * we skip processing it in Puppeteer to avoid 'Navigating frame was detached' crashes.
+   */
+  async _checkIfHtml(urlStr) {
+    return new Promise((resolve) => {
+      try {
+        const parsed = new URL(urlStr);
+        const protocol = parsed.protocol === 'https:' ? https : http;
+        const req = protocol.request(urlStr, { method: 'HEAD', timeout: 5000 }, (res) => {
+          const contentType = (res.headers['content-type'] || '').toLowerCase();
+          const contentDisposition = (res.headers['content-disposition'] || '').toLowerCase();
+          
+          if (contentDisposition.includes('attachment')) {
+            resolve(false);
+          } else if (contentType && !contentType.includes('text/html') && !contentType.includes('text/plain')) {
+            resolve(false); // E.g., application/pdf, image/jpeg
+          } else {
+            resolve(true);
+          }
+          req.destroy();
+        });
+        
+        req.on('error', () => resolve(true)); // On error, assume true to let Puppeteer try and handle it legitimately
+        req.on('timeout', () => { req.destroy(); resolve(true); });
+        req.end();
+      } catch {
+        resolve(true);
+      }
+    });
+  }
+
+  /**
    * Process a single page: navigate, capture HTML, discover links and assets.
    * Detects server-side redirects and creates redirect stubs instead of duplicating HTML.
    */
   async _processPage(browser, url, depth, isRetry = false) {
     if (isAssetUrl(url)) {
       this.logger.debug(`[Asset Routing] Downloading media instead of crawling: ${url}`);
+      await this.assetDownloader.downloadMany([url]);
+      return;
+    }
+
+    const isHtml = await this._checkIfHtml(url);
+    if (!isHtml) {
+      this.logger.info(`[Dynamic File routing] Server indicates this is a file download, not a webpage: ${url}`);
       await this.assetDownloader.downloadMany([url]);
       return;
     }
