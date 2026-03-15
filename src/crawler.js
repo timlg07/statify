@@ -261,12 +261,20 @@ export class Crawler {
 
       // Enqueue discovered internal links
       if (depth < this.maxDepth) {
+        const foundAssets = [];
         for (const link of links) {
           const norm = normalizeUrl(link, this.origin);
           if (norm && !this.visited.has(norm) && isInternalUrl(norm, this.origin)) {
             this.visited.set(norm, depth + 1);
-            this.queue.push({ url: norm, depth: depth + 1 });
+            if (isAssetUrl(norm)) {
+              foundAssets.push(norm);
+            } else {
+              this.queue.push({ url: norm, depth: depth + 1 });
+            }
           }
+        }
+        if (foundAssets.length > 0) {
+          await this.assetDownloader.downloadMany(foundAssets);
         }
       }
     } catch (err) {

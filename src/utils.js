@@ -65,6 +65,29 @@ export function sanitizeQueryString(search) {
 }
 
 /**
+ * Determine if a URL points to a static asset (image, video, document) based on its file extension.
+ * Helps prevent the crawler from trying to navigate to non-HTML pages.
+ * @param {string} urlStr 
+ * @returns {boolean}
+ */
+export function isAssetUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    const pathname = parsed.pathname.toLowerCase();
+    const assetExtensions = [
+      '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.ico', '.bmp', '.tiff',
+      '.mp4', '.webm', '.ogg', '.mp3', '.wav', '.flac', '.aac', '.m4a',
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.7z', '.tar', '.gz',
+      '.woff', '.woff2', '.ttf', '.eot', '.otf',
+      '.css', '.js', '.json', '.xml', '.csv', '.txt'
+    ];
+    return assetExtensions.some(ext => pathname.endsWith(ext));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Convert a URL into a filesystem path within the output directory.
  *
  * - "/blog/page-2/" → "blog/page-2/index.html"
