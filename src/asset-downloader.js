@@ -31,6 +31,10 @@ export class AssetDownloader {
    * @returns {Promise<string|null>} Relative file path within output dir, or null on failure
    */
   async download(assetUrl) {
+    if (assetUrl.startsWith('data:') || assetUrl.startsWith('blob:')) {
+      return null;
+    }
+
     // Normalize
     const normalized = normalizeUrl(assetUrl, this.origin);
     if (!normalized) return null;
