@@ -53,26 +53,47 @@ export class AssetDownloader {
 
     this.processing.add(normalized);
 
-    const { filePath, fullPath } = urlToFilePath(normalized, this.outputDir);
+    // Try the "obvious" file path first to check disk cache
+    const { filePath: expectedFilePath, fullPath: expectedFullPath } = urlToFilePath(normalized, this.outputDir);
 
     // Skip if already on disk (from a previous run perhaps)
-    if (existsSync(fullPath)) {
-      this.downloadedAssets.set(normalized, filePath);
-      return filePath;
+    if (existsSync(expectedFullPath)) {
+      this.downloadedAssets.set(normalized, expectedFilePath);
+      return expectedFilePath;
     }
 
     this.logger.debug(`Downloading asset: ${normalized}`);
-    const success = await downloadFile(normalized, fullPath);
+    // Use dynamic urlToFilePath so redirects resolve to the final URL's real file path
+    const result = await downloadFile(normalized, this.outputDir, urlToFilePath);
 
-    if (success) {
-      this.downloadedAssets.set(normalized, filePath);
+    if (result && result.success) {
+      const { filePath: finalFilePath } = urlToFilePath(result.finalUrl, this.outputDir);
 
-      // If it's a CSS file, parse it for additional asset references
-      if (filePath.endsWith('.css')) {
-        await this.processCssFile(fullPath, normalized);
+      // Map both the original URL and the final URL to the file
+      this.downloadedAssets.set(normalized, finalFilePath);
+      if (result.redirected && result.finalUrl !== normalized) {
+        const finalNorm = normalizeUrl(result.finalUrl, this.origin);
+        if (finalNorm) {
+          this.downloadedAssets.set(finalNorm, finalFilePath);
+        }
+        // Notify crawler about the redirect for .htaccess generation
+        if (this.onRedirect) {
+          const fromParsed = new URL(normalized);
+          this.onRedirect(
+            fromParsed.pathname + fromParsed.search,
+            '/' + finalFilePath
+          );
+        }
+        this.logger.debug(`Asset redirect: ${normalized} → ${result.finalUrl}`);
       }
 
-      return filePath;
+      // If it's a CSS file, parse it for additional asset references
+      if (finalFilePath.endsWith('.css')) {
+        const { fullPath: finalFullPath } = urlToFilePath(result.finalUrl, this.outputDir);
+        await this.processCssFile(finalFullPath, result.finalUrl);
+      }
+
+      return finalFilePath;
     } else {
       this.logger.warn(`Failed to download: ${normalized}`);
       return null;

@@ -196,16 +196,17 @@ export class Crawler {
       return;
     }
 
-    const isHtml = await this._checkIfHtml(url);
-    if (!isHtml) {
-      this.logger.info(`[Dynamic File routing] Server indicates this is a file download, not a webpage: ${url}`);
-      await this.assetDownloader.downloadMany([url]);
-      return;
-    }
-
     const prefix = isRetry ? '[RETRY]' : `[depth=${depth}]`;
     this.logger.info(`${prefix} Crawling: ${url}`);
-    const page = await browser.newPage();
+
+    let page;
+    try {
+      page = await browser.newPage();
+    } catch (err) {
+      this.logger.error(`Failed to open new page for ${url}: ${err.message}`);
+      if (!isRetry) this.failedPages.push({ url, depth });
+      return;
+    }
 
     try {
       if (this.userAgent) {
@@ -214,6 +215,12 @@ export class Crawler {
       if (this.noJs) {
         await page.setJavaScriptEnabled(false);
       }
+
+      // Use CDP to deny file downloads — prevents Chrome from detaching the
+      // navigation frame when it encounters Content-Disposition: attachment
+      // or non-HTML content types (like PDFs served by PHP scripts).
+      const cdp = await page.createCDPSession();
+      await cdp.send('Page.setDownloadBehavior', { behavior: 'deny' });
 
       await page.setRequestInterception(true);
       page.on('request', (req) => {
@@ -232,7 +239,15 @@ export class Crawler {
           timeout: this.timeout,
         });
       } catch (navErr) {
-        this.logger.warn(`Navigation failed for ${url}: ${navErr.message}`);
+        const msg = navErr.message || '';
+        // "Navigating frame was detached" means Chrome tried to download a file.
+        // Route to AssetDownloader as a direct HTTP download instead of retrying in Puppeteer.
+        if (msg.includes('frame was detached') || msg.includes('net::ERR_ABORTED')) {
+          this.logger.info(`[Download detected] ${url} triggered a file download, routing to asset downloader`);
+          await this.assetDownloader.downloadMany([url]);
+          return;
+        }
+        this.logger.warn(`Navigation failed for ${url}: ${msg}`);
         if (!isRetry) this.failedPages.push({ url, depth });
         return; // Skip this page
       }
