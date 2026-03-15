@@ -14,6 +14,16 @@ import http from 'node:http';
 export function normalizeUrl(url, base) {
   try {
     const resolved = new URL(url, base);
+    
+    if (base) {
+      try {
+        const baseParsed = new URL(base);
+        if (resolved.host === baseParsed.host) {
+          resolved.protocol = baseParsed.protocol;
+        }
+      } catch {}
+    }
+
     resolved.hash = '';
     let pathname = resolved.pathname;
     if (pathname.length > 1 && pathname.endsWith('/')) {
@@ -32,7 +42,8 @@ export function normalizeUrl(url, base) {
 export function isInternalUrl(url, origin) {
   try {
     const parsed = new URL(url);
-    return parsed.origin === origin;
+    const originParsed = new URL(origin);
+    return parsed.host === originParsed.host;
   } catch {
     return false;
   }
