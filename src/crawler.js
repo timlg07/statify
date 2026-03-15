@@ -155,6 +155,12 @@ export class Crawler {
    * Detects server-side redirects and creates redirect stubs instead of duplicating HTML.
    */
   async _processPage(browser, url, depth, isRetry = false) {
+    if (isAssetUrl(url)) {
+      this.logger.debug(`[Asset Routing] Downloading media instead of crawling: ${url}`);
+      await this.assetDownloader.downloadMany([url]);
+      return;
+    }
+
     const prefix = isRetry ? '[RETRY]' : `[depth=${depth}]`;
     this.logger.info(`${prefix} Crawling: ${url}`);
     const page = await browser.newPage();
