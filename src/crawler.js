@@ -3,7 +3,7 @@ import pLimit from 'p-limit';
 import { readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { posix } from 'node:path';
-import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger } from './utils.js';
+import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger, isAssetUrl } from './utils.js';
 import { AssetDownloader } from './asset-downloader.js';
 import { UrlRewriter } from './url-rewriter.js';
 
@@ -121,7 +121,7 @@ export class Crawler {
    */
   async _crawlPages(browser) {
     const limit = pLimit(this.concurrency);
-    
+
     // Only initialize start URL if we haven't visited anything (e.g. not resuming)
     if (this.visited.size === 0) {
       const normalized = normalizeUrl(this.startUrl, this.origin);
@@ -144,7 +144,7 @@ export class Crawler {
         limit(() => this._processPage(browser, url, depth, isRetry))
       );
       await Promise.all(promises);
-      
+
       // Save state after each batch completes
       await this._saveState();
     }
@@ -544,7 +544,7 @@ export class Crawler {
         this.logger.warn('State file not found. Starting fresh crawl.');
         return false;
       }
-      
+
       const data = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(data);
 
@@ -553,7 +553,7 @@ export class Crawler {
       this.pageMap = new Map(state.pageMap || []);
       this.redirects = state.redirects || [];
       this.failedPages = state.failedPages || [];
-      
+
       if (state.downloadedAssets) {
         this.assetDownloader.setAssetMap(new Map(state.downloadedAssets));
       }
