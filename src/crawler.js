@@ -56,6 +56,9 @@ export class Crawler {
 
     /** @type {Array<{from: string, to: string}>} */
     this.redirects = [];
+
+    /** @type {Array<{url: string, depth: number}>} */
+    this.failedPages = [];
   }
 
   /**
@@ -93,7 +96,11 @@ export class Crawler {
       this.logger.success(`Crawl complete! ${this.pageMap.size} pages, ${this.assetDownloader.getAssetMap().size} assets, ${this.redirects.length} redirect(s) saved.`);
       this.logger.info(`Output: ${this.outputDir}`);
     } finally {
-      await browser.close();
+      try {
+        await browser.close();
+      } catch (err) {
+        this.logger.debug(`Browser close error: ${err.message}`);
+      }
     }
   }
 
@@ -106,10 +113,19 @@ export class Crawler {
     this.queue.push({ url: normalized, depth: 0 });
     this.visited.set(normalized, 0);
 
-    while (this.queue.length > 0) {
+    let hasRetried = false;
+
+    while (this.queue.length > 0 || (!hasRetried && this.failedPages.length > 0)) {
+      if (this.queue.length === 0 && !hasRetried && this.failedPages.length > 0) {
+        this.logger.info(`--- Phase 1.5: Retrying ${this.failedPages.length} failed page(s) ---`);
+        this.queue = this.failedPages.map(page => ({ ...page, isRetry: true }));
+        this.failedPages = [];
+        hasRetried = true;
+      }
+
       const batch = this.queue.splice(0, this.concurrency);
-      const promises = batch.map(({ url, depth }) =>
-        limit(() => this._processPage(browser, url, depth))
+      const promises = batch.map(({ url, depth, isRetry = false }) =>
+        limit(() => this._processPage(browser, url, depth, isRetry))
       );
       await Promise.all(promises);
     }
@@ -119,8 +135,9 @@ export class Crawler {
    * Process a single page: navigate, capture HTML, discover links and assets.
    * Detects server-side redirects and creates redirect stubs instead of duplicating HTML.
    */
-  async _processPage(browser, url, depth) {
-    this.logger.info(`[depth=${depth}] Crawling: ${url}`);
+  async _processPage(browser, url, depth, isRetry = false) {
+    const prefix = isRetry ? '[RETRY]' : `[depth=${depth}]`;
+    this.logger.info(`${prefix} Crawling: ${url}`);
     const page = await browser.newPage();
 
     try {
@@ -131,22 +148,27 @@ export class Crawler {
         await page.setJavaScriptEnabled(false);
       }
 
-      // Block unnecessary resource types to speed up crawling
-      // (we download assets separately)
       await page.setRequestInterception(true);
       page.on('request', (req) => {
+        if (req.isInterceptResolutionHandled()) return;
         const type = req.resourceType();
         if (['media', 'websocket'].includes(type)) {
-          req.abort();
+          req.abort().catch(e => this.logger.debug(`Request abort error: ${e.message}`));
         } else {
-          req.continue();
+          req.continue().catch(e => this.logger.debug(`Request continue error: ${e.message}`));
         }
       });
 
-      await page.goto(url, {
-        waitUntil: 'networkidle0',
-        timeout: this.timeout,
-      });
+      try {
+        await page.goto(url, {
+          waitUntil: 'networkidle0',
+          timeout: this.timeout,
+        });
+      } catch (navErr) {
+        this.logger.warn(`Navigation failed for ${url}: ${navErr.message}`);
+        if (!isRetry) this.failedPages.push({ url, depth });
+        return; // Skip this page
+      }
 
       // Check if the page redirected to a different URL
       const finalUrl = normalizeUrl(page.url(), this.origin);
@@ -230,8 +252,15 @@ export class Crawler {
       }
     } catch (err) {
       this.logger.error(`Failed to process ${url}: ${err.message}`);
+      if (!isRetry) this.failedPages.push({ url, depth });
     } finally {
-      await page.close();
+      try {
+        if (!page.isClosed()) {
+          await page.close().catch(e => this.logger.debug(`Page close error: ${e.message}`));
+        }
+      } catch (e) {
+        this.logger.debug(`Page close error: ${e.message}`);
+      }
     }
   }
 
@@ -245,33 +274,25 @@ export class Crawler {
 
       // Internal links via <a href>
       document.querySelectorAll('a[href]').forEach(a => {
-        try {
-          const href = new URL(a.href, document.baseURI).href;
-          if (href.startsWith(origin)) {
-            links.add(href);
-          }
-        } catch {}
+        const href = new URL(a.href, document.baseURI).href;
+        if (href.startsWith(origin)) {
+          links.add(href);
+        }
       });
 
       // CSS stylesheets
       document.querySelectorAll('link[rel="stylesheet"][href]').forEach(link => {
-        try {
-          assets.add(new URL(link.href, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(link.href, document.baseURI).href);
       });
 
       // Scripts
       document.querySelectorAll('script[src]').forEach(script => {
-        try {
-          assets.add(new URL(script.src, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(script.src, document.baseURI).href);
       });
 
       // Images
       document.querySelectorAll('img[src]').forEach(img => {
-        try {
-          assets.add(new URL(img.src, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(img.src, document.baseURI).href);
       });
 
       // img srcset
@@ -280,46 +301,34 @@ export class Crawler {
         if (srcset) {
           srcset.split(',').forEach(entry => {
             const url = entry.trim().split(/\s+/)[0];
-            try {
-              assets.add(new URL(url, document.baseURI).href);
-            } catch {}
+            assets.add(new URL(url, document.baseURI).href);
           });
         }
       });
 
       // Picture source
       document.querySelectorAll('source[src]').forEach(source => {
-        try {
-          assets.add(new URL(source.src, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(source.src, document.baseURI).href);
       });
 
       // Favicon
       document.querySelectorAll('link[rel="icon"][href], link[rel="shortcut icon"][href], link[rel="apple-touch-icon"][href]').forEach(link => {
-        try {
-          assets.add(new URL(link.href, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(link.href, document.baseURI).href);
       });
 
       // Open Graph / meta images
       document.querySelectorAll('meta[property="og:image"][content], meta[name="twitter:image"][content]').forEach(meta => {
-        try {
-          assets.add(new URL(meta.content, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(meta.content, document.baseURI).href);
       });
 
       // Video poster
       document.querySelectorAll('video[poster]').forEach(video => {
-        try {
-          assets.add(new URL(video.poster, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(video.poster, document.baseURI).href);
       });
 
       // Preloaded resources
       document.querySelectorAll('link[rel="preload"][href]').forEach(link => {
-        try {
-          assets.add(new URL(link.href, document.baseURI).href);
-        } catch {}
+        assets.add(new URL(link.href, document.baseURI).href);
       });
 
       return {
