@@ -106,7 +106,13 @@ export class Crawler {
       this.logger.info('--- Phase 3: Generating redirects ---');
       await this._generateRedirects();
 
-      await this._clearState();
+      if (this.failedPages.length === 0) {
+        await this._clearState();
+      } else {
+        this.logger.warn(`There are ${this.failedPages.length} permanently failed pages. State file preserved. Use --resume to try again later.`);
+        await this._saveState(); // Ensure last state is saved
+      }
+
       this.logger.success(`Crawl complete! ${this.pageMap.size} pages, ${this.assetDownloader.getAssetMap().size} assets, ${this.redirects.length} redirect(s) saved.`);
       this.logger.info(`Output: ${this.outputDir}`);
     } finally {
@@ -165,7 +171,7 @@ export class Crawler {
         const req = protocol.request(urlStr, { method: 'HEAD', timeout: 5000 }, (res) => {
           const contentType = (res.headers['content-type'] || '').toLowerCase();
           const contentDisposition = (res.headers['content-disposition'] || '').toLowerCase();
-          
+
           if (contentDisposition.includes('attachment')) {
             resolve(false);
           } else if (contentType && !contentType.includes('text/html') && !contentType.includes('text/plain')) {
@@ -175,7 +181,7 @@ export class Crawler {
           }
           req.destroy();
         });
-        
+
         req.on('error', () => resolve(true)); // On error, assume true to let Puppeteer try and handle it legitimately
         req.on('timeout', () => { req.destroy(); resolve(true); });
         req.end();
@@ -248,7 +254,7 @@ export class Crawler {
           return;
         }
         this.logger.warn(`Navigation failed for ${url}: ${msg}`);
-        if (!isRetry) this.failedPages.push({ url, depth });
+        this.failedPages.push({ url, depth });
         return; // Skip this page
       }
 
