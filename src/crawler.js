@@ -84,10 +84,19 @@ export class Crawler {
 
     const browser = await puppeteer.launch({
       headless: !this.show,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security'],
     });
 
     try {
+      // Create a dedicated page for asset downloading to utilize the browser's context natively
+      const assetPage = await browser.newPage();
+      try {
+        await assetPage.goto(this.startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      } catch (e) {
+        this.logger.debug(`Asset page init navigation warning: ${e.message}`);
+      }
+      this.assetDownloader.setBrowserPage(assetPage);
+
       let stateLoaded = false;
       if (this.resume) {
         stateLoaded = await this._loadState();

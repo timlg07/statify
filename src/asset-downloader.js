@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { downloadFile, urlToFilePath, normalizeUrl, isInternalUrl, saveFile, Logger } from './utils.js';
+import { downloadFile, downloadFileBrowser, urlToFilePath, normalizeUrl, isInternalUrl, saveFile, Logger } from './utils.js';
 
 /**
  * Downloads and tracks all static assets (CSS, JS, images, fonts, etc.)
@@ -18,12 +18,21 @@ export class AssetDownloader {
     this.outputDir = outputDir;
     this.logger = logger;
     this.onRedirect = onRedirect;
+    this.browserPage = null;
 
     /** @type {Map<string, string>} Maps original absolute URL → local file path (relative to outputDir) */
     this.downloadedAssets = new Map();
 
     /** @type {Set<string>} URLs currently being downloaded or already processed */
     this.processing = new Set();
+  }
+
+  /**
+   * Set a dedicated Puppeteer page to use for authenticated file downloads.
+   * @param {object} page
+   */
+  setBrowserPage(page) {
+    this.browserPage = page;
   }
 
   /**
@@ -63,8 +72,14 @@ export class AssetDownloader {
     }
 
     this.logger.debug(`Downloading asset: ${normalized}`);
+    
     // Use dynamic urlToFilePath so redirects resolve to the final URL's real file path
-    const result = await downloadFile(normalized, this.outputDir, urlToFilePath);
+    let result;
+    if (this.browserPage) {
+      result = await downloadFileBrowser(this.browserPage, normalized, this.outputDir, urlToFilePath);
+    } else {
+      result = await downloadFile(normalized, this.outputDir, urlToFilePath);
+    }
 
     if (result && result.success) {
       const { filePath: finalFilePath } = urlToFilePath(result.finalUrl, this.outputDir);

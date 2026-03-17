@@ -257,6 +257,57 @@ export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, ret
 }
 
 /**
+ * Download a file explicitly by executing `fetch` inside the provided Puppeteer page.
+ * This guarantees that all browser session cookies, local storage, and caching are respected.
+ */
+export async function downloadFileBrowser(page, url, destOrOutputDir, urlToFilePathFunc = null) {
+  const isDynamic = typeof urlToFilePathFunc === 'function';
+  let dest = isDynamic ? null : destOrOutputDir;
+  let finalUrl = url;
+
+  if (!isDynamic) {
+    await ensureDir(dirname(dest));
+  }
+
+  try {
+    const data = await page.evaluate(async (targetUrl) => {
+      const res = await fetch(targetUrl, { credentials: 'include' });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      
+      const blob = await res.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve({
+            dataUrl: reader.result,
+            finalUrl: res.url,
+            redirected: res.redirected
+          });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }, url);
+
+    if (isDynamic) {
+      const result = urlToFilePathFunc(data.finalUrl, destOrOutputDir);
+      dest = result.fullPath;
+      finalUrl = data.finalUrl;
+    }
+
+    await ensureDir(dirname(dest));
+    
+    // Extract base64
+    const b64 = data.dataUrl.split(',')[1];
+    await saveFile(dest, Buffer.from(b64, 'base64'));
+
+    return { success: true, finalUrl, redirected: data.redirected };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Simple logger with verbosity.
  */
 export class Logger {
