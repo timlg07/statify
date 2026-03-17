@@ -18,6 +18,7 @@ program
   .option('--no-js', 'Disable JavaScript rendering')
   .option('-r, --resume', 'Resume a previously interrupted crawl from .statify-state.json')
   .option('-s, --show', 'Show browser window (non-headless mode)')
+  .option('-a, --authenticate', 'Pause before scraping to allow manual authentication in the browser (implies -s)')
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (url, options) => {
     // Validate and normalize URL
@@ -44,6 +45,11 @@ program
     }
     outputDir = resolve(process.cwd(), outputDir);
 
+    // --authenticate implies --show (browser must be visible for manual login)
+    if (options.authenticate) {
+      options.show = true;
+    }
+
     const crawler = new Crawler({
       url,
       outputDir,
@@ -54,6 +60,7 @@ program
       maxDepth: options.maxDepth ?? Infinity,
       resume: options.resume || false,
       show: options.show,
+      authenticate: options.authenticate || false,
       verbose: options.verbose,
     });
 

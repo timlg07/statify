@@ -14,14 +14,14 @@ import http from 'node:http';
 export function normalizeUrl(url, base) {
   try {
     const resolved = new URL(url, base);
-    
+
     if (base) {
       try {
         const baseParsed = new URL(base);
         if (resolved.host === baseParsed.host) {
           resolved.protocol = baseParsed.protocol;
         }
-      } catch {}
+      } catch { }
     }
 
     resolved.hash = '';

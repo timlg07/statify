@@ -48,7 +48,9 @@ Options:
   --user-agent <string>  Custom User-Agent string
   --no-js                Disable JavaScript rendering capture
   --max-depth <n>        Maximum crawl depth from homepage (default: unlimited)
+  -r, --resume           Resume a previously interrupted crawl from .statify-state.json
   -s, --show             Show browser window (non-headless mode)
+  -a, --authenticate     Pause before scraping to allow manual authentication in the browser (implies -s)
   -v, --verbose          Enable verbose logging
   -h, --help             display help for command
 ```
@@ -68,6 +70,11 @@ node bin/statify.js https://example.com --max-depth 3 -v
 **Crawl rapidly (parallel pages) and watch the browser (headed mode):**
 ```bash
 node bin/statify.js https://example.com -c 4 --show
+```
+
+**Authenticate first, then crawl (for password-protected sites):**
+```bash
+node bin/statify.js https://example.com -a
 ```
 
 ## Deployment

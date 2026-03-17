@@ -3,6 +3,8 @@ import pLimit from 'p-limit';
 import { readFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { posix } from 'node:path';
+import { createInterface } from 'node:readline';
+import { stdin, stdout } from 'node:process';
 import http from 'node:http';
 import https from 'node:https';
 import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger, isAssetUrl } from './utils.js';
@@ -36,6 +38,7 @@ export class Crawler {
     this.maxDepth = options.maxDepth ?? Infinity;
     this.verbose = options.verbose || false;
     this.show = options.show || false;
+    this.authenticate = options.authenticate || false;
     this.resume = options.resume || false;
 
     const parsedStart = new URL(this.startUrl);
@@ -88,6 +91,11 @@ export class Crawler {
       let stateLoaded = false;
       if (this.resume) {
         stateLoaded = await this._loadState();
+      }
+
+      // Authentication step: let the user log in manually before crawling
+      if (this.authenticate) {
+        await this._authenticate(browser);
       }
 
       // Phase 1: Crawl all pages
@@ -647,5 +655,30 @@ export class Crawler {
     } catch (e) {
       this.logger.debug(`Failed to clear state file: ${e.message}`);
     }
+  }
+
+  /**
+   * Open the start URL and wait for the user to authenticate manually.
+   */
+  async _authenticate(browser) {
+    this.logger.info('--- Authentication: Opening browser for manual login ---');
+    const page = await browser.newPage();
+    await page.goto(this.startUrl, { waitUntil: 'networkidle2', timeout: this.timeout });
+
+    const rl = createInterface({ input: stdin, output: stdout });
+    await new Promise((resolve) => {
+      rl.question(
+        '\n*** Please log in using the browser window. Press ENTER here when ready to start scraping. ***\n',
+        () => { rl.close(); resolve(); }
+      );
+    });
+
+    try {
+      if (!page.isClosed()) await page.close();
+    } catch (e) {
+      this.logger.debug(`Auth page close error: ${e.message}`);
+    }
+
+    this.logger.info('Authentication complete. Starting crawl...');
   }
 }
