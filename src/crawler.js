@@ -84,7 +84,7 @@ export class Crawler {
 
     const browser = await puppeteer.launch({
       headless: !this.show,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security'],
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-dev-shm-usage'],
     });
 
     try {
@@ -239,6 +239,13 @@ export class Crawler {
         await page.setJavaScriptEnabled(false);
       }
 
+      // Prevent pages from closing themselves (e.g., WordPress print-friendly popup flow).
+      // If a page closes itself while we are setting up CDP or request interception, 
+      // it causes severe Target/Protocol errors and can crash the Chromium connection.
+      await page.evaluateOnNewDocument(() => {
+        window.close = () => console.debug('Blocked window.close()');
+      });
+
       // Use CDP to deny file downloads — prevents Chrome from detaching the
       // navigation frame when it encounters Content-Disposition: attachment
       // or non-HTML content types (like PDFs served by PHP scripts).
@@ -368,7 +375,8 @@ export class Crawler {
       if (!isRetry) this.failedPages.push({ url, depth });
     } finally {
       try {
-        if (!page.isClosed()) {
+        if (page && !page.isClosed()) {
+          // If the browser connection crashed, page.close() will throw. We catch it gracefully.
           await page.close().catch(e => this.logger.debug(`Page close error: ${e.message}`));
         }
       } catch (e) {
