@@ -227,7 +227,7 @@ export class Crawler {
       page = await browser.newPage();
     } catch (err) {
       this.logger.error(`Failed to open new page for ${url}: ${err.message}`);
-      if (!isRetry) this.failedPages.push({ url, depth });
+      this.failedPages.push({ url, depth });
       return;
     }
 
@@ -372,7 +372,7 @@ export class Crawler {
       }
     } catch (err) {
       this.logger.error(`Failed to process ${url}: ${err.message}`);
-      if (!isRetry) this.failedPages.push({ url, depth });
+      this.failedPages.push({ url, depth });
     } finally {
       try {
         if (page && !page.isClosed()) {
@@ -474,6 +474,9 @@ export class Crawler {
     // Rewrite HTML pages
     for (const [pageUrl, filePath] of this.pageMap) {
       const fullPath = this.outputDir + '/' + filePath;
+      if (!this.rawPages.has(filePath) && !existsSync(fullPath)) {
+        continue; // Skip failed or unsaved pages
+      }
       try {
         const rawHtml = this.rawPages.get(filePath) || await readFile(fullPath, 'utf-8');
         const rewritten = rewriter.rewriteHtml(rawHtml, filePath, pageUrl);

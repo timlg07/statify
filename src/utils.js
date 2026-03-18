@@ -176,7 +176,7 @@ export async function saveFile(filePath, content) {
   await writeFile(filePath, content);
 }
 
-export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, retries = 2) {
+export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, retries = 2, headers = {}) {
   return new Promise(async (resolve) => {
     const isDynamic = typeof urlToFilePathFunc === 'function';
     let dest = isDynamic ? null : destOrOutputDir;
@@ -189,7 +189,7 @@ export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, ret
 
     const attempt = (remaining, currentUrl) => {
       const client = currentUrl.startsWith('https') ? https : http;
-      const request = client.get(currentUrl, { timeout: 30000 }, (res) => {
+      const request = client.get(currentUrl, { timeout: 30000, headers }, (res) => {
         // Follow redirects
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           redirected = true;
@@ -257,51 +257,24 @@ export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, ret
 }
 
 /**
- * Download a file explicitly by executing `fetch` inside the provided Puppeteer page.
- * This guarantees that all browser session cookies, local storage, and caching are respected.
+ * Download a file explicitly by fetching it using the page's cookies.
+ * This guarantees that browser session cookies are respected and avoids
+ * Puppeteer CDP payload limits for large files.
  */
 export async function downloadFileBrowser(page, url, destOrOutputDir, urlToFilePathFunc = null) {
-  const isDynamic = typeof urlToFilePathFunc === 'function';
-  let dest = isDynamic ? null : destOrOutputDir;
-  let finalUrl = url;
-
-  if (!isDynamic) {
-    await ensureDir(dirname(dest));
-  }
-
   try {
-    const data = await page.evaluate(async (targetUrl) => {
-      const res = await fetch(targetUrl, { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      
-      const blob = await res.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          resolve({
-            dataUrl: reader.result,
-            finalUrl: res.url,
-            redirected: res.redirected
-          });
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    }, url);
-
-    if (isDynamic) {
-      const result = urlToFilePathFunc(data.finalUrl, destOrOutputDir);
-      dest = result.fullPath;
-      finalUrl = data.finalUrl;
-    }
-
-    await ensureDir(dirname(dest));
+    const cookies = await page.cookies(url);
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const userAgent = await page.evaluate(() => navigator.userAgent);
     
-    // Extract base64
-    const b64 = data.dataUrl.split(',')[1];
-    await saveFile(dest, Buffer.from(b64, 'base64'));
-
-    return { success: true, finalUrl, redirected: data.redirected };
+    const headers = {
+      'User-Agent': userAgent,
+    };
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+    
+    return await downloadFile(url, destOrOutputDir, urlToFilePathFunc, 2, headers);
   } catch (error) {
     return { success: false, error: error.message };
   }
