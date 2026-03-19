@@ -19,6 +19,7 @@ program
   .option('-r, --resume', 'Resume a previously interrupted crawl from .statify-state.json')
   .option('-s, --show', 'Show browser window (non-headless mode)')
   .option('-a, --authenticate', 'Pause before scraping to allow manual authentication in the browser (implies -s)')
+  .option('-e, --exclude <pattern>', 'Regular expression of URLs to exclude from crawling')
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (url, options) => {
     // Validate and normalize URL
@@ -61,6 +62,7 @@ program
       resume: options.resume || false,
       show: options.show,
       authenticate: options.authenticate || false,
+      exclude: options.exclude,
       verbose: options.verbose,
     });
 

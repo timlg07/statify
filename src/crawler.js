@@ -40,6 +40,7 @@ export class Crawler {
     this.show = options.show || false;
     this.authenticate = options.authenticate || false;
     this.resume = options.resume || false;
+    this.exclude = options.exclude ? new RegExp(options.exclude) : null;
 
     const parsedStart = new URL(this.startUrl);
     this.origin = parsedStart.origin;
@@ -370,6 +371,11 @@ export class Crawler {
           for (const link of links) {
             const norm = normalizeUrl(link, this.origin);
             if (norm && !this.visited.has(norm) && isInternalUrl(norm, this.origin)) {
+              if (this.exclude && this.exclude.test(norm)) {
+                this.visited.set(norm, -1);
+                this.logger.info(`Excluded URL: ${norm}`);
+                continue;
+              }
               this.visited.set(norm, depth + 1);
               this.queue.push({ url: norm, depth: depth + 1 });
             }
@@ -410,6 +416,11 @@ export class Crawler {
         for (const link of links) {
           const norm = normalizeUrl(link, this.origin);
           if (norm && !this.visited.has(norm) && isInternalUrl(norm, this.origin)) {
+            if (this.exclude && this.exclude.test(norm)) {
+              this.visited.set(norm, -1);
+              this.logger.info(`Excluded URL: ${norm}`);
+              continue;
+            }
             this.visited.set(norm, depth + 1);
             if (isAssetUrl(norm)) {
               foundAssets.push(norm);
