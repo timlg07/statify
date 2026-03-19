@@ -66,6 +66,11 @@ export class Crawler {
 
     /** @type {Array<{url: string, depth: number}>} */
     this.failedPages = [];
+
+    /** @type {import('puppeteer').Browser | null} */
+    this.browser = null;
+
+    this.hasActiveBrowser = false;
   }
 
   /**
@@ -82,20 +87,55 @@ export class Crawler {
       this.logger.info('Browser: visible (non-headless)');
     }
 
-    const browser = await puppeteer.launch({
+    const launchOptions = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-web-security',
+      '--disable-dev-shm-usage',
+      '--disable-features=FedCm'
+    ];
+    this.browser = await puppeteer.launch({
       headless: !this.show,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security', '--disable-dev-shm-usage'],
+      args: launchOptions,
     });
 
-    try {
-      // Create a dedicated page for asset downloading to utilize the browser's context natively
-      const assetPage = await browser.newPage();
+    const self = this;
+    function subscribeToBrowserDisconnected() {
+      self.browser.on('disconnected', async () => {
+        self.logger.error('Browser disconnected.');
+        self.hasActiveBrowser = false;
+
+        self.browser = await puppeteer.launch({
+          headless: !self.show,
+          args: launchOptions,
+        });
+        subscribeToBrowserDisconnected();
+
+        createAssetPage();
+
+        if (self.authenticate) {
+          await self._authenticate();
+        }
+
+        self.hasActiveBrowser = true;
+      });
+    }
+    subscribeToBrowserDisconnected();
+    self.hasActiveBrowser = true;
+
+    // Create a dedicated page for asset downloading to utilize the browser's context natively
+    async function createAssetPage() {
+      const assetPage = await self.browser.newPage();
       try {
-        await assetPage.goto(this.startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await assetPage.goto(self.startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       } catch (e) {
-        this.logger.debug(`Asset page init navigation warning: ${e.message}`);
+        self.logger.debug(`Asset page init navigation warning: ${e.message}`);
       }
-      this.assetDownloader.setBrowserPage(assetPage);
+      self.assetDownloader.setBrowserPage(assetPage);
+    }
+
+    try {
+      createAssetPage();
 
       let stateLoaded = false;
       if (this.resume) {
@@ -104,13 +144,13 @@ export class Crawler {
 
       // Authentication step: let the user log in manually before crawling
       if (this.authenticate) {
-        await this._authenticate(browser);
+        await this._authenticate();
       }
 
       // Phase 1: Crawl all pages
       if (!stateLoaded || this.queue.length > 0 || this.failedPages.length > 0) {
         this.logger.info('--- Phase 1: Crawling pages ---');
-        await this._crawlPages(browser);
+        await this._crawlPages();
       } else {
         this.logger.info('--- Phase 1: Crawling pages (Already completed) ---');
       }
@@ -134,7 +174,9 @@ export class Crawler {
       this.logger.info(`Output: ${this.outputDir}`);
     } finally {
       try {
-        await browser.close();
+        if (this.browser) {
+          await this.browser.close();
+        }
       } catch (err) {
         this.logger.debug(`Browser close error: ${err.message}`);
       }
@@ -144,7 +186,7 @@ export class Crawler {
   /**
    * Crawl pages using a BFS queue with concurrency limit.
    */
-  async _crawlPages(browser) {
+  async _crawlPages() {
     const limit = pLimit(this.concurrency);
 
     // Only initialize start URL if we haven't visited anything (e.g. not resuming)
@@ -166,7 +208,7 @@ export class Crawler {
 
       const batch = this.queue.splice(0, this.concurrency);
       const promises = batch.map(({ url, depth, isRetry = false }) =>
-        limit(() => this._processPage(browser, url, depth, isRetry))
+        limit(() => this._processPage(url, depth, isRetry))
       );
       await Promise.all(promises);
 
@@ -212,7 +254,11 @@ export class Crawler {
    * Process a single page: navigate, capture HTML, discover links and assets.
    * Detects server-side redirects and creates redirect stubs instead of duplicating HTML.
    */
-  async _processPage(browser, url, depth, isRetry = false) {
+  async _processPage(url, depth, isRetry = false) {
+    while (!this.hasActiveBrowser) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
     if (isAssetUrl(url)) {
       this.logger.debug(`[Asset Routing] Downloading media instead of crawling: ${url}`);
       await this.assetDownloader.downloadMany([url]);
@@ -224,7 +270,10 @@ export class Crawler {
 
     let page;
     try {
-      page = await browser.newPage();
+      page = await this.browser.newPage();
+      page.on('framedetached', (frame) => {
+        this.logger.debug(`Frame detached: ${frame.url()}`);
+      });
     } catch (err) {
       this.logger.error(`Failed to open new page for ${url}: ${err.message}`);
       this.failedPages.push({ url, depth });
@@ -265,7 +314,7 @@ export class Crawler {
 
       try {
         await page.goto(url, {
-          waitUntil: 'networkidle0',
+          waitUntil: 'load',
           timeout: this.timeout,
         });
       } catch (navErr) {
@@ -273,9 +322,12 @@ export class Crawler {
         // "Navigating frame was detached" means Chrome tried to download a file.
         // Route to AssetDownloader as a direct HTTP download instead of retrying in Puppeteer.
         if (msg.includes('frame was detached') || msg.includes('net::ERR_ABORTED')) {
-          this.logger.info(`[Download detected] ${url} triggered a file download, routing to asset downloader`);
-          await this.assetDownloader.downloadMany([url]);
-          return;
+          this.logger.info(`[Possible download detected] ${url} triggered a file download, routing to asset downloader`);
+          const res = await this.assetDownloader.downloadMany([url]);
+          if (res.size > 0) {
+            this.logger.info(`[Download success] ${url} downloaded successfully`);
+            return;
+          }
         }
         this.logger.warn(`Navigation failed for ${url}: ${msg}`);
         this.failedPages.push({ url, depth });
@@ -680,9 +732,9 @@ export class Crawler {
   /**
    * Open the start URL and wait for the user to authenticate manually.
    */
-  async _authenticate(browser) {
+  async _authenticate() {
     this.logger.info('--- Authentication: Opening browser for manual login ---');
-    const page = await browser.newPage();
+    const page = await this.browser.newPage();
     await page.goto(this.startUrl, { waitUntil: 'networkidle2', timeout: this.timeout });
 
     const rl = createInterface({ input: stdin, output: stdout });
