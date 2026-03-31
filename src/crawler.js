@@ -456,27 +456,34 @@ export class Crawler {
       const links = new Set();
       const assets = new Set();
 
+      function tryUrl(raw, base) {
+        try { return new URL(raw, base).href; } catch { return null; }
+      }
+
       // Internal links via <a href>
       document.querySelectorAll('a[href]').forEach(a => {
-        const href = new URL(a.href, document.baseURI).href;
-        if (href.startsWith(origin)) {
+        const href = tryUrl(a.href, document.baseURI);
+        if (href && href.startsWith(origin)) {
           links.add(href);
         }
       });
 
       // CSS stylesheets
       document.querySelectorAll('link[rel="stylesheet"][href]').forEach(link => {
-        assets.add(new URL(link.href, document.baseURI).href);
+        const url = tryUrl(link.href, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Scripts
       document.querySelectorAll('script[src]').forEach(script => {
-        assets.add(new URL(script.src, document.baseURI).href);
+        const url = tryUrl(script.src, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Images
       document.querySelectorAll('img[src]').forEach(img => {
-        assets.add(new URL(img.src, document.baseURI).href);
+        const url = tryUrl(img.src, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // img srcset
@@ -484,35 +491,41 @@ export class Crawler {
         const srcset = el.getAttribute('srcset');
         if (srcset) {
           srcset.split(',').forEach(entry => {
-            const url = entry.trim().split(/\s+/)[0];
-            assets.add(new URL(url, document.baseURI).href);
+            const raw = entry.trim().split(/\s+/)[0];
+            const url = tryUrl(raw, document.baseURI);
+            if (url) assets.add(url);
           });
         }
       });
 
       // Picture source
       document.querySelectorAll('source[src]').forEach(source => {
-        assets.add(new URL(source.src, document.baseURI).href);
+        const url = tryUrl(source.src, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Favicon
       document.querySelectorAll('link[rel="icon"][href], link[rel="shortcut icon"][href], link[rel="apple-touch-icon"][href]').forEach(link => {
-        assets.add(new URL(link.href, document.baseURI).href);
+        const url = tryUrl(link.href, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Open Graph / meta images
       document.querySelectorAll('meta[property="og:image"][content], meta[name="twitter:image"][content]').forEach(meta => {
-        assets.add(new URL(meta.content, document.baseURI).href);
+        const url = tryUrl(meta.content, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Video poster
       document.querySelectorAll('video[poster]').forEach(video => {
-        assets.add(new URL(video.poster, document.baseURI).href);
+        const url = tryUrl(video.poster, document.baseURI);
+        if (url) assets.add(url);
       });
 
       // Preloaded resources
       document.querySelectorAll('link[rel="preload"][href]').forEach(link => {
-        assets.add(new URL(link.href, document.baseURI).href);
+        const url = tryUrl(link.href, document.baseURI);
+        if (url) assets.add(url);
       });
 
       return {
