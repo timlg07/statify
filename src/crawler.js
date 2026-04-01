@@ -176,6 +176,7 @@ export class Crawler {
     } finally {
       try {
         if (this.browser) {
+          this.browser.removeAllListeners('disconnected');
           await this.browser.close();
         }
       } catch (err) {
