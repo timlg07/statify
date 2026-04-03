@@ -68,6 +68,7 @@ program
 
     try {
       await crawler.run();
+      process.exit(0);
     } catch (err) {
       console.error(`\nCrawl failed: ${err.message}`);
       if (options.verbose) {
