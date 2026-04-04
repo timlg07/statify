@@ -453,7 +453,8 @@ export class Crawler {
    * Extract all internal links and asset URLs from a page.
    */
   async _extractUrlsFromPage(page, pageUrl) {
-    return page.evaluate((origin) => {
+    const originHost = new URL(this.origin).host;
+    return page.evaluate((originHost) => {
       const links = new Set();
       const assets = new Set();
 
@@ -461,10 +462,14 @@ export class Crawler {
         try { return new URL(raw, base).href; } catch { return null; }
       }
 
+      function isSameHost(href) {
+        try { return new URL(href).host === originHost; } catch { return false; }
+      }
+
       // Internal links via <a href>
       document.querySelectorAll('a[href]').forEach(a => {
         const href = tryUrl(a.href, document.baseURI);
-        if (href && href.startsWith(origin)) {
+        if (href && isSameHost(href)) {
           links.add(href);
         }
       });
@@ -533,7 +538,7 @@ export class Crawler {
         links: Array.from(links),
         assets: Array.from(assets)
       };
-    }, this.origin);
+    }, originHost);
   }
 
   /**
