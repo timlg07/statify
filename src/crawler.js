@@ -41,6 +41,8 @@ export class Crawler {
     this.authenticate = options.authenticate || false;
     this.resume = options.resume || false;
     this.exclude = options.exclude ? new RegExp(options.exclude) : null;
+    this.limitPages = options.limitPages || Infinity;
+    this.pagesProcessed = 0;
 
     const parsedStart = new URL(this.startUrl);
     this.origin = parsedStart.origin;
@@ -83,6 +85,9 @@ export class Crawler {
     this.logger.info(`Concurrency: ${this.concurrency}`);
     if (this.maxDepth !== Infinity) {
       this.logger.info(`Max depth: ${this.maxDepth}`);
+    }
+    if (this.limitPages !== Infinity) {
+      this.logger.info(`Page limit: ${this.limitPages}`);
     }
     if (this.show) {
       this.logger.info('Browser: visible (non-headless)');
@@ -164,7 +169,10 @@ export class Crawler {
       this.logger.info('--- Phase 3: Generating redirects ---');
       await this._generateRedirects();
 
-      if (this.failedPages.length === 0) {
+      if (this.pageLimitReached) {
+        await this._saveState();
+        this.logger.warn(`Page limit of ${this.limitPages} reached. ${this.queue.length} page(s) remaining. Use --resume to continue.`);
+      } else if (this.failedPages.length === 0) {
         await this._clearState();
       } else {
         this.logger.warn(`There are ${this.failedPages.length} permanently failed pages. State file preserved. Use --resume to try again later.`);
@@ -199,8 +207,15 @@ export class Crawler {
     }
 
     let hasRetried = false;
+    this.pageLimitReached = false;
 
     while (this.queue.length > 0 || (!hasRetried && this.failedPages.length > 0)) {
+      // Check if we've hit the page limit
+      if (this.pagesProcessed >= this.limitPages) {
+        this.pageLimitReached = true;
+        break;
+      }
+
       if (this.queue.length === 0 && !hasRetried && this.failedPages.length > 0) {
         this.logger.info(`--- Phase 1.5: Retrying ${this.failedPages.length} failed page(s) ---`);
         this.queue = this.failedPages.map(page => ({ ...page, isRetry: true }));
@@ -208,11 +223,15 @@ export class Crawler {
         hasRetried = true;
       }
 
-      const batch = this.queue.splice(0, this.concurrency);
+      // Respect page limit for batch size
+      const remaining = this.limitPages - this.pagesProcessed;
+      const batchSize = Math.min(this.concurrency, remaining);
+      const batch = this.queue.splice(0, batchSize);
       const promises = batch.map(({ url, depth, isRetry = false }) =>
         limit(() => this._processPage(url, depth, isRetry))
       );
       await Promise.all(promises);
+      this.pagesProcessed += batch.length;
 
       // Save state after each batch completes
       await this._saveState();

@@ -20,6 +20,7 @@ program
   .option('-s, --show', 'Show browser window (non-headless mode)')
   .option('-a, --authenticate', 'Pause before scraping to allow manual authentication in the browser (implies -s)')
   .option('-e, --exclude <pattern>', 'Regular expression of URLs to exclude from crawling')
+  .option('-l, --limit-pages <n>', 'Maximum number of pages to crawl before stopping (use -r to resume later)', parseInt)
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (url, options) => {
     // Validate and normalize URL
@@ -63,6 +64,7 @@ program
       show: options.show,
       authenticate: options.authenticate || false,
       exclude: options.exclude,
+      limitPages: options.limitPages,
       verbose: options.verbose,
     });
 
