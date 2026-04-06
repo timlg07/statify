@@ -41,18 +41,20 @@ Arguments:
   url                    URL of the website to scrape (e.g. https://example.com)
 
 Options:
-  -V, --version          output the version number
-  -o, --output <dir>     Output directory (default: domain name)
-  -c, --concurrency <n>  Number of pages to crawl in parallel (default: 1)
-  -t, --timeout <ms>     Navigation timeout per page in milliseconds (default: 30000)
-  --user-agent <string>  Custom User-Agent string
-  --no-js                Disable JavaScript rendering capture
-  --max-depth <n>        Maximum crawl depth from homepage (default: unlimited)
-  -r, --resume           Resume a previously interrupted crawl from .statify-state.json
-  -s, --show             Show browser window (non-headless mode)
-  -a, --authenticate     Pause before scraping to allow manual authentication in the browser (implies -s)
-  -v, --verbose          Enable verbose logging
-  -h, --help             display help for command
+  -V, --version           output the version number
+  -o, --output <dir>      Output directory (default: domain name)
+  -c, --concurrency <n>   Number of pages to crawl in parallel (default: 1)
+  -t, --timeout <ms>      Navigation timeout per page in milliseconds (default: 30000)
+  --user-agent <string>   Custom User-Agent string
+  --no-js                 Disable JavaScript rendering
+  --max-depth <n>         Maximum crawl depth from homepage
+  -r, --resume            Resume a previously interrupted crawl from .statify-state.json
+  -s, --show              Show browser window (non-headless mode)
+  -a, --authenticate      Pause before scraping to allow manual authentication in the browser (implies -s)
+  -e, --exclude <pattern> Regular expression of URLs to exclude from crawling
+  -l, --limit-pages <n>   Maximum number of pages to crawl before stopping (use -r to resume later)
+  -v, --verbose           Enable verbose logging
+  -h, --help              display help for command
 ```
 
 ### Examples
@@ -62,14 +64,21 @@ Options:
 node bin/statify.js https://example.com
 ```
 
-**Crawl with a max depth of 3 and verbose logging:**
+**Crawl with a max depth of 3 and exclude PDF files:**
 ```bash
-node bin/statify.js https://example.com --max-depth 3 -v
+node bin/statify.js https://example.com --max-depth 3 -e "\.pdf$"
 ```
 
 **Crawl rapidly (parallel pages) and watch the browser (headed mode):**
 ```bash
 node bin/statify.js https://example.com -c 4 --show
+```
+
+**Limit the crawl to 100 pages then resume later:**
+```bash
+node bin/statify.js https://example.com --limit-pages 100
+# ... wait some time ...
+node bin/statify.js https://example.com --resume
 ```
 
 **Authenticate first, then crawl (for password-protected sites):**
