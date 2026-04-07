@@ -668,11 +668,23 @@ export class Crawler {
     this.logger.success(`Generated index.php with ${this.redirects.length} redirect(s).`);
 
     // --- HTML stub files with JS redirect (client-side fallback) ---
+    // Only create stubs when the computed file path matches the original URL
+    // path (i.e. a static server would actually serve this file at that URL).
+    // Query-string and other sanitized redirects produce filenames that don't
+    // correspond to the original URL, so those are handled exclusively by
+    // .htaccess and index.php above.
     for (const { from, to } of this.redirects) {
       const { filePath, fullPath } = urlToFilePath(this.origin + from, this.outputDir);
 
+      // Check that the file path matches the original URL pathname
+      const fromPath = new URL(from, this.origin).pathname.slice(1); // strip leading /
+      const pathMatches = filePath === fromPath
+        || filePath === fromPath + '/index.html'
+        || (fromPath.endsWith('/') && filePath === fromPath + 'index.html');
+      if (!pathMatches) continue;
+
       // Only create JS redirect stub if there's no real page saved at this path
-      if (!this.rawPages.has(filePath)) {
+      if (!this.rawPages.has(filePath) && !existsSync(fullPath)) {
         const htmlStub = [
           '<!DOCTYPE html>',
           '<html>',
