@@ -16,6 +16,7 @@ program
   .option('-t, --timeout <ms>', 'Navigation timeout per page in milliseconds', parseInt, 30000)
   .option('--user-agent <string>', 'Custom User-Agent string')
   .option('--no-js', 'Disable JavaScript rendering')
+  .option('-w, --wait-until <event>', 'Navigation wait until event (load, domcontentloaded, networkidle0, networkidle2)', 'domcontentloaded')
   .option('-r, --resume', 'Resume a previously interrupted crawl from .statify-state.json')
   .option('-s, --show', 'Show browser window (non-headless mode)')
   .option('-a, --authenticate', 'Pause before scraping to allow manual authentication in the browser (implies -s)')
@@ -60,6 +61,7 @@ program
       timeout: options.timeout,
       userAgent: options.userAgent,
       noJs: !options.js, // Commander's --no-js sets options.js = false
+      waitUntil: options.waitUntil,
       maxDepth: options.maxDepth ?? Infinity,
       resume: options.resume || false,
       show: options.show,

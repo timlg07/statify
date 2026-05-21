@@ -38,6 +38,7 @@ export class Crawler {
     this.maxDepth = options.maxDepth ?? Infinity;
     this.verbose = options.verbose || false;
     this.show = options.show || false;
+    this.waitUntil = options.waitUntil || 'domcontentloaded';
     this.authenticate = options.authenticate || false;
     this.resume = options.resume || false;
     this.exclude = options.exclude ? new RegExp(options.exclude) : null;
@@ -335,7 +336,7 @@ export class Crawler {
 
       try {
         await page.goto(url, {
-          waitUntil: 'load',
+          waitUntil: this.waitUntil,
           timeout: this.timeout,
         });
       } catch (navErr) {
