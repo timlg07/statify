@@ -99,7 +99,15 @@ export class UrlRewriter {
       $(el).html(this._rewriteCssUrls(css, baseUrl, pageFilePath));
     });
 
-    return $.html();
+    let output = $.html();
+
+    // Final catch-all: rewrite any remaining absolute URLs pointing to the origin.
+    // This covers attributes not in the explicit list above (e.g. <option value="...">,
+    // <input data-url="...">, custom data-* attributes), inline <script> content,
+    // JSON-LD blocks, HTML comments, and any other place where the origin URL appears.
+    output = this._rewriteRemainingOriginUrls(output, baseUrl, pageFilePath);
+
+    return output;
   }
 
   /**
@@ -227,6 +235,35 @@ export class UrlRewriter {
     } catch {
       return urlStr;
     }
+  }
+
+  /**
+   * Rewrite any remaining absolute URLs pointing to this.origin in raw HTML text.
+   * This is a catch-all that runs on the serialized HTML string after Cheerio processing,
+   * ensuring URLs in any context (attribute values, inline scripts, JSON-LD, comments, etc.)
+   * are rewritten to relative paths.
+   * @param {string} html - Serialized HTML string
+   * @param {string} baseUrl - Base URL for resolving relative refs
+   * @param {string} pageFilePath - Local file path of the current page
+   * @returns {string} HTML with remaining origin URLs rewritten
+   */
+  _rewriteRemainingOriginUrls(html, baseUrl, pageFilePath) {
+    // Escape origin for use in regex (handles dots, colons, slashes)
+    const escapedOrigin = this.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Match the origin followed by an optional path+query+fragment, stopping at whitespace,
+    // quotes, angle brackets, or other URL-terminating characters.
+    // This intentionally matches both http and https variants if the origin uses either.
+    const pattern = new RegExp(escapedOrigin + '(\\/[^\\s"\'<>\\]\\)]*)?', 'g');
+
+    return html.replace(pattern, (match) => {
+      // Skip data: URIs and fragments that somehow matched
+      if (match.startsWith('data:') || match === '#') return match;
+
+      const rewritten = this._resolveAndRewrite(match, baseUrl, pageFilePath);
+      console.log(`%% Rewriting remaining URL: ${match} -> ${rewritten}`);
+      return rewritten !== null ? rewritten : match;
+    });
   }
 
   /**
