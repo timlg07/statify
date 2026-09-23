@@ -80,6 +80,15 @@ node bin/statify.js https://example.com --limit-pages 100
 # ... wait some time ...
 node bin/statify.js https://example.com --resume
 ```
+This can also be done using the repeat crawl tool, which automates the loop of running
+statify, waiting, and resuming until no pages remain:
+```bash
+node tools/repeat-crawl.js https://example.com -l 100
+```
+The default delay between runs is 5 minutes (to help avoid rate-limiting). You can customize it with `--delay`:
+```bash
+node tools/repeat-crawl.js --delay 10 https://example.com -l 100
+```
 
 **Authenticate first, then crawl (for password-protected sites):**
 ```bash
