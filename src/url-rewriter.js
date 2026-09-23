@@ -261,7 +261,6 @@ export class UrlRewriter {
       if (match.startsWith('data:') || match === '#') return match;
 
       const rewritten = this._resolveAndRewrite(match, baseUrl, pageFilePath);
-      console.log(`%% Rewriting remaining URL: ${match} -> ${rewritten}`);
       return rewritten !== null ? rewritten : match;
     });
   }
