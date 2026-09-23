@@ -121,6 +121,36 @@ export class UrlRewriter {
   }
 
   /**
+   * Rewrite asset URL strings in a JS file on disk.
+   * @param {string} jsFilePath - Absolute path to the JS file
+   * @param {string} jsUrl - Original absolute URL of the JS file
+   */
+  async rewriteJsFile(jsFilePath, jsUrl) {
+    try {
+      const js = await readFile(jsFilePath, 'utf-8');
+      const { filePath: jsLocalPath } = urlToFilePath(jsUrl, this.outputDir);
+      
+      const stringPattern = /(['"`])((?:https?:\/\/[^'"`]+?|\/[^'"`]+?|[a-zA-Z0-9_\-]+\/[^'"`]+?)\.(?:png|jpg|jpeg|gif|webp|svg|woff|woff2|ttf|eot|css|js))\1/gi;
+      
+      const rewritten = js.replace(stringPattern, (match, quote, ref) => {
+        if (ref.startsWith('data:') || ref.startsWith('#')) return match;
+        
+        const newUrl = this._resolveAndRewrite(ref, jsUrl, jsLocalPath);
+        if (newUrl !== null) {
+          return `${quote}${newUrl}${quote}`;
+        }
+        return match;
+      });
+
+      if (rewritten !== js) {
+        await writeFile(jsFilePath, rewritten);
+      }
+    } catch {
+      // Could not process JS file
+    }
+  }
+
+  /**
    * Resolve a URL and rewrite it to a relative path.
    * @returns {string|null} The relative path, or null if not rewritable
    */

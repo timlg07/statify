@@ -589,12 +589,16 @@ export class Crawler {
       }
     }
 
-    // Rewrite CSS files
+    // Rewrite CSS and JS files
     for (const [assetUrl, filePath] of this.assetDownloader.getAssetMap()) {
       if (filePath.endsWith('.css')) {
         const fullPath = this.outputDir + '/' + filePath;
         await rewriter.rewriteCssFile(fullPath, assetUrl);
         this.logger.debug(`Rewrote CSS: ${filePath}`);
+      } else if (filePath.endsWith('.js')) {
+        const fullPath = this.outputDir + '/' + filePath;
+        await rewriter.rewriteJsFile(fullPath, assetUrl);
+        this.logger.debug(`Rewrote JS: ${filePath}`);
       }
     }
   }

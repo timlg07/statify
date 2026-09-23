@@ -72,7 +72,7 @@ export class AssetDownloader {
     }
 
     this.logger.debug(`Downloading asset: ${normalized}`);
-    
+
     // Use dynamic urlToFilePath so redirects resolve to the final URL's real file path
     let result;
     if (this.browserPage) {
@@ -106,6 +106,9 @@ export class AssetDownloader {
       if (finalFilePath.endsWith('.css')) {
         const { fullPath: finalFullPath } = urlToFilePath(result.finalUrl, this.outputDir);
         await this.processCssFile(finalFullPath, result.finalUrl);
+      } else if (finalFilePath.endsWith('.js')) {
+        const { fullPath: finalFullPath } = urlToFilePath(result.finalUrl, this.outputDir);
+        await this.processJsFile(finalFullPath, result.finalUrl);
       }
 
       return finalFilePath;
@@ -173,6 +176,39 @@ export class AssetDownloader {
       }
     } catch {
       // Could not read/parse CSS, skip
+    }
+  }
+
+  /**
+   * Parse a downloaded JS file for string literals that look like asset URLs,
+   * and download those assets too.
+   */
+  async processJsFile(jsFilePath, jsUrl) {
+    try {
+      const js = await readFile(jsFilePath, 'utf-8');
+
+      // Match common string literals that look like URLs ending in asset extensions
+      // e.g., '/images/bg.png', 'https://example.com/assets/logo.svg'
+      const stringPattern = /(?:['"`])((?:https?:\/\/[^'"`]+?|\/[^'"`]+?|[a-zA-Z0-9_\-]+\/[^'"`]+?)\.(?:png|jpg|jpeg|gif|webp|svg|woff|woff2|ttf|eot|css|js))(?:['"`])/gi;
+
+      const refs = new Set();
+      let match;
+      while ((match = stringPattern.exec(js)) !== null) {
+        refs.add(match[1].trim());
+      }
+
+      for (const ref of refs) {
+        try {
+          const absoluteUrl = new URL(ref, jsUrl).href;
+          if (isInternalUrl(absoluteUrl, this.origin)) {
+            await this.download(absoluteUrl);
+          }
+        } catch {
+          // Invalid URL, skip
+        }
+      }
+    } catch {
+      // Could not read/parse JS, skip
     }
   }
 
