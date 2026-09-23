@@ -18,5 +18,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "allowScripts": {
+    "puppeteer@23.11.1": true
   }
 }
