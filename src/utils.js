@@ -77,7 +77,7 @@ export function isAssetUrl(urlStr) {
     const assetExtensions = [
       '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.ico', '.bmp', '.tiff',
       '.mp4', '.webm', '.ogg', '.mp3', '.wav', '.flac', '.aac', '.m4a',
-      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.7z', '.tar', '.gz',
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pps', '.ppsx', '.zip', '.rar', '.7z', '.tar', '.gz',
       '.woff', '.woff2', '.ttf', '.eot', '.otf',
       '.css', '.js', '.json', '.xml', '.csv', '.txt'
     ];
@@ -189,7 +189,13 @@ export function downloadFile(url, destOrOutputDir, urlToFilePathFunc = null, ret
 
     const attempt = (remaining, currentUrl) => {
       const client = currentUrl.startsWith('https') ? https : http;
-      const request = client.get(currentUrl, { timeout: 30000, headers }, (res) => {
+      const request = client.get(currentUrl, {
+        timeout: 30000,
+        headers: {
+          'Accept-Encoding': 'identity',
+          ...headers,
+        },
+      }, (res) => {
         // Follow redirects
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           redirected = true;

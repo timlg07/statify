@@ -255,8 +255,10 @@ export class Crawler {
 
           if (contentDisposition.includes('attachment')) {
             resolve(false);
-          } else if (contentType && !contentType.includes('text/html') && !contentType.includes('text/plain')) {
-            resolve(false); // E.g., application/pdf, image/jpeg
+          } else if (contentType) {
+            // Only HTML responses should be opened as pages. All other declared
+            // MIME types must be downloaded as bytes, regardless of the URL extension.
+            resolve(contentType.startsWith('text/html') || contentType.startsWith('application/xhtml+xml'));
           } else {
             resolve(true);
           }
@@ -283,6 +285,12 @@ export class Crawler {
 
     if (isAssetUrl(url)) {
       this.logger.debug(`[Asset Routing] Downloading media instead of crawling: ${url}`);
+      await this.assetDownloader.downloadMany([url]);
+      return;
+    }
+
+    if (!(await this._checkIfHtml(url))) {
+      this.logger.debug(`[Content-Type Routing] Downloading non-HTML response: ${url}`);
       await this.assetDownloader.downloadMany([url]);
       return;
     }
