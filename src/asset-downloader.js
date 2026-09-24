@@ -50,6 +50,11 @@ export class AssetDownloader {
     const normalized = normalizeUrl(assetUrl, this.origin);
     if (!normalized) return null;
 
+    if (!isInternalUrl(normalized, this.origin)) {
+      this.logger.debug(`Skipping external asset: ${normalized}`);
+      return null;
+    }
+
     // Already downloaded?
     if (this.downloadedAssets.has(normalized)) {
       return this.downloadedAssets.get(normalized);

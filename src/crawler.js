@@ -287,6 +287,11 @@ export class Crawler {
       return;
     }
 
+    if (this._isPageDownloaded(url)) {
+      this.logger.debug(`Skipping already downloaded page: ${url}`);
+      return;
+    }
+
     const prefix = isRetry ? '[RETRY]' : `[depth=${depth}]`;
     this.logger.info(`${prefix} Crawling: ${url}`);
 
@@ -379,7 +384,11 @@ export class Crawler {
         this.pageMap.set(url, toFilePath);
 
         // Make sure the redirect target is in the queue
-        if (!this.visited.has(finalUrl) && isInternalUrl(finalUrl, this.origin)) {
+        if (
+          !this.visited.has(finalUrl)
+          && isInternalUrl(finalUrl, this.origin)
+          && !this._isPageDownloaded(finalUrl)
+        ) {
           this.visited.set(finalUrl, depth);
           this.queue.push({ url: finalUrl, depth });
         }
@@ -470,6 +479,20 @@ export class Crawler {
   }
 
   /**
+   * Check whether a page URL already has a saved local representation.
+   * @param {string} url
+   * @returns {boolean}
+   */
+  _isPageDownloaded(url) {
+    const filePath = this.pageMap.get(url);
+    if (!filePath) {
+      return false;
+    }
+
+    return this.rawPages.has(filePath) || existsSync(this.outputDir + '/' + filePath);
+  }
+
+  /**
    * Extract all internal links and asset URLs from a page.
    */
   async _extractUrlsFromPage(page, pageUrl) {
@@ -497,19 +520,19 @@ export class Crawler {
       // CSS stylesheets
       document.querySelectorAll('link[rel="stylesheet"][href]').forEach(link => {
         const url = tryUrl(link.href, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Scripts
       document.querySelectorAll('script[src]').forEach(script => {
         const url = tryUrl(script.src, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Images
       document.querySelectorAll('img[src]').forEach(img => {
         const url = tryUrl(img.src, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // img srcset
@@ -519,7 +542,7 @@ export class Crawler {
           srcset.split(',').forEach(entry => {
             const raw = entry.trim().split(/\s+/)[0];
             const url = tryUrl(raw, document.baseURI);
-            if (url) assets.add(url);
+            if (url && isSameHost(url)) assets.add(url);
           });
         }
       });
@@ -527,31 +550,31 @@ export class Crawler {
       // Picture source
       document.querySelectorAll('source[src]').forEach(source => {
         const url = tryUrl(source.src, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Favicon
       document.querySelectorAll('link[rel="icon"][href], link[rel="shortcut icon"][href], link[rel="apple-touch-icon"][href]').forEach(link => {
         const url = tryUrl(link.href, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Open Graph / meta images
       document.querySelectorAll('meta[property="og:image"][content], meta[name="twitter:image"][content]').forEach(meta => {
         const url = tryUrl(meta.content, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Video poster
       document.querySelectorAll('video[poster]').forEach(video => {
         const url = tryUrl(video.poster, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       // Preloaded resources
       document.querySelectorAll('link[rel="preload"][href]').forEach(link => {
         const url = tryUrl(link.href, document.baseURI);
-        if (url) assets.add(url);
+        if (url && isSameHost(url)) assets.add(url);
       });
 
       return {

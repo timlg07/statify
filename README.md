@@ -5,7 +5,7 @@ Statify is a Node.js CLI tool that uses Puppeteer to scrape CMS-based websites (
 ## Features
 
 - **Full DOM Capture**: Renders JavaScript before capturing the page to support dynamic content, comments, and pagination.
-- **Asset Downloading**: Automatically downloads CSS, JS, images, fonts, favicons, open-graph images, and parses CSS `url()` references.
+- **Asset Downloading**: Automatically downloads same-origin CSS, JS, images, fonts, favicons, open-graph images, and parses CSS `url()` references. External assets remain external.
 - **URL Rewriting**: Rewrites all internal links and asset references to relative paths (`../style.css`), allowing the site to work offline or in any subfolder.
 - **Smart Redirect Handling**: Detects server-side redirects (e.g., `/` to `/home/`) and generates lightweight fallback redirects (`.htaccess`, `index.php`, `<meta>` refresh) instead of duplicating HTML.
 - **Query Param Conversion**: Safely converts URLs with query parameters into flat files (e.g., `?page=2` -> `_page_2.html`). Provides 301 redirects for the original URLs via `.htaccess`.
