@@ -55,9 +55,15 @@ export class AssetDownloader {
       return null;
     }
 
-    // Already downloaded?
+    // Already downloaded? Verify the cached path because the output may have
+    // been deleted since the state file was written.
     if (this.downloadedAssets.has(normalized)) {
-      return this.downloadedAssets.get(normalized);
+      const cachedFilePath = this.downloadedAssets.get(normalized);
+      const cachedFullPath = this.outputDir + '/' + cachedFilePath;
+      if (existsSync(cachedFullPath)) {
+        return cachedFilePath;
+      }
+      this.downloadedAssets.delete(normalized);
     }
 
     // Already processing (prevents infinite loops in CSS references)?

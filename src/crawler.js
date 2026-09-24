@@ -391,6 +391,20 @@ export class Crawler {
         // so URL rewriting resolves links to this URL correctly
         this.pageMap.set(url, toFilePath);
 
+        // A redirect can point directly to a downloadable asset. Download the
+        // resolved target directly instead of relying on the target being
+        // queued: the target may already be marked visited from another path.
+        if (isAssetUrl(finalUrl)) {
+          this.logger.info(`[Redirected asset] Downloading: ${finalUrl}`);
+          const downloadResult = await this.assetDownloader.downloadMany([finalUrl]);
+          if (downloadResult.size === 0) {
+            this.logger.warn(`Failed to download redirected asset: ${url} → ${finalUrl}`);
+          } else {
+            this.logger.info(`[Redirected asset] Saved: ${downloadResult.get(finalUrl)}`);
+          }
+          return;
+        }
+
         // Make sure the redirect target is in the queue
         if (
           !this.visited.has(finalUrl)
@@ -802,6 +816,23 @@ export class Crawler {
 
       if (state.downloadedAssets) {
         this.assetDownloader.setAssetMap(new Map(state.downloadedAssets));
+      }
+
+      // State can outlive files that were manually deleted or corrupted.
+      // Requeue page URLs whose mapped output no longer exists.
+      const queuedUrls = new Set(this.queue.map(item => item.url));
+      for (const [pageUrl, filePath] of this.pageMap) {
+        const fullPath = this.outputDir + '/' + filePath;
+        if (
+          !existsSync(fullPath)
+          && this.visited.get(pageUrl) !== -1
+          && !queuedUrls.has(pageUrl)
+        ) {
+          const depth = this.visited.get(pageUrl) ?? 0;
+          this.queue.push({ url: pageUrl, depth });
+          queuedUrls.add(pageUrl);
+          this.logger.info(`Requeued missing output: ${pageUrl} → ${filePath}`);
+        }
       }
 
       this.logger.info(`Resumed state: ${this.visited.size} pages visited, ${this.queue.length} left in queue. Assets: ${this.assetDownloader.getAssetMap().size}.`);
