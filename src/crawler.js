@@ -763,6 +763,27 @@ export class Crawler {
     await saveFile(phpPath, phpLines.join('\n'));
     this.logger.success(`Generated index.php with ${this.redirects.length} redirect(s).`);
 
+    // Query-string URLs are rewritten to flat filenames such as
+    // request_64.php. Generate a matching PHP redirect at that exact path so
+    // links remain valid even when Apache rewrite rules are unavailable.
+    for (const { from, to } of this.redirects) {
+      const parsedFrom = new URL(from, this.origin);
+      if (!parsedFrom.search) continue;
+
+      const { filePath, fullPath } = urlToFilePath(this.origin + from, this.outputDir);
+      if (this.rawPages.has(filePath) || existsSync(fullPath)) continue;
+
+      const phpStub = [
+        '<?php',
+        `header('Location: ${this._escapePhp(to)}', true, 301);`,
+        'exit;',
+        '?>',
+        '',
+      ].join('\n');
+      await saveFile(fullPath, phpStub);
+      this.logger.debug(`Created PHP redirect stub: ${filePath}`);
+    }
+
     // --- HTML stub files with JS redirect (client-side fallback) ---
     // Only create stubs when the computed file path matches the original URL
     // path (i.e. a static server would actually serve this file at that URL).
