@@ -391,25 +391,17 @@ export class Crawler {
         // so URL rewriting resolves links to this URL correctly
         this.pageMap.set(url, toFilePath);
 
-        // A redirect can point directly to a downloadable asset. Download the
-        // resolved target directly instead of relying on the target being
-        // queued: the target may already be marked visited from another path.
-        if (isAssetUrl(finalUrl)) {
-          this.logger.info(`[Redirected asset] Downloading: ${finalUrl}`);
-          const downloadResult = await this.assetDownloader.downloadMany([finalUrl]);
-          if (downloadResult.size === 0) {
-            this.logger.warn(`Failed to download redirected asset: ${url} → ${finalUrl}`);
-          } else {
-            this.logger.info(`[Redirected asset] Saved: ${downloadResult.get(finalUrl)}`);
-          }
-          return;
-        }
-
         // Make sure the redirect target is in the queue
+        const assetFilePath = this.assetDownloader.getAssetMap().get(finalUrl);
+        const assetExists = assetFilePath
+          ? existsSync(this.outputDir + '/' + assetFilePath)
+          : false;
         if (
-          !this.visited.has(finalUrl)
-          && isInternalUrl(finalUrl, this.origin)
-          && !this._isPageDownloaded(finalUrl)
+          isInternalUrl(finalUrl, this.origin)
+          && (
+            (!this.visited.has(finalUrl) && !this._isPageDownloaded(finalUrl))
+            || (isAssetUrl(finalUrl) && !assetExists)
+          )
         ) {
           this.visited.set(finalUrl, depth);
           this.queue.push({ url: finalUrl, depth });
