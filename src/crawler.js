@@ -620,6 +620,9 @@ export class Crawler {
 
     // Rewrite HTML pages
     for (const [pageUrl, filePath] of this.pageMap) {
+      if (!filePath.toLowerCase().endsWith('.html')) {
+        continue;
+      }
       const fullPath = this.outputDir + '/' + filePath;
       if (!this.rawPages.has(filePath) && !existsSync(fullPath)) {
         continue; // Skip failed or unsaved pages
