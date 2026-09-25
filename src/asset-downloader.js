@@ -61,7 +61,14 @@ export class AssetDownloader {
       const cachedFilePath = this.downloadedAssets.get(normalized);
       const cachedFullPath = this.outputDir + '/' + cachedFilePath;
       if (existsSync(cachedFullPath)) {
-        return cachedFilePath;
+        if (!cachedFilePath.toLowerCase().endsWith('.pdf')) {
+          return cachedFilePath;
+        }
+
+        const header = (await readFile(cachedFullPath)).subarray(0, 5).toString('ascii');
+        if (header === '%PDF-') {
+          return cachedFilePath;
+        }
       }
       this.downloadedAssets.delete(normalized);
     }
