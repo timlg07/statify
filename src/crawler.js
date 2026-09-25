@@ -11,6 +11,8 @@ import { normalizeUrl, isInternalUrl, urlToFilePath, saveFile, ensureDir, Logger
 import { AssetDownloader } from './asset-downloader.js';
 import { UrlRewriter } from './url-rewriter.js';
 
+const FLOOD_PROTECTION_MESSAGE = 'The flood protection on this site has been activated and you are warned that if you carry on requesting pages you could be banned.';
+
 /**
  * Core crawler that orchestrates page discovery, content capture,
  * asset downloading, and URL rewriting.
@@ -70,6 +72,8 @@ export class Crawler {
 
     /** @type {Array<{url: string, depth: number}>} */
     this.failedPages = [];
+
+    this.crawlStopped = false;
 
     /** @type {import('puppeteer').Browser | null} */
     this.browser = null;
@@ -162,6 +166,12 @@ export class Crawler {
         this.logger.info('--- Phase 1: Crawling pages (Already completed) ---');
       }
 
+      if (this.crawlStopped) {
+        await this._saveState();
+        this.logger.warn('Flood protection was detected. Stopping downloads. Continue the crawl after some time with --resume.');
+        return;
+      }
+
       // Phase 2: Rewrite URLs in all saved content
       this.logger.info('--- Phase 2: Rewriting URLs ---');
       await this._rewriteAll();
@@ -236,6 +246,10 @@ export class Crawler {
 
       // Save state after each batch completes
       await this._saveState();
+
+      if (this.crawlStopped) {
+        break;
+      }
     }
   }
 
@@ -283,13 +297,26 @@ export class Crawler {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    if (this.crawlStopped) {
+      this.queue.unshift({ url, depth });
+      return;
+    }
+
     if (isAssetUrl(url)) {
+      if (this.crawlStopped) {
+        this.queue.unshift({ url, depth });
+        return;
+      }
       this.logger.debug(`[Asset Routing] Downloading media instead of crawling: ${url}`);
       await this.assetDownloader.downloadMany([url]);
       return;
     }
 
     if (!(await this._checkIfHtml(url))) {
+      if (this.crawlStopped) {
+        this.queue.unshift({ url, depth });
+        return;
+      }
       this.logger.debug(`[Content-Type Routing] Downloading non-HTML response: ${url}`);
       await this.assetDownloader.downloadMany([url]);
       return;
@@ -357,6 +384,10 @@ export class Crawler {
         // "Navigating frame was detached" means Chrome tried to download a file.
         // Route to AssetDownloader as a direct HTTP download instead of retrying in Puppeteer.
         if (msg.includes('frame was detached') || msg.includes('net::ERR_ABORTED')) {
+          if (this.crawlStopped) {
+            this.queue.unshift({ url, depth });
+            return;
+          }
           this.logger.info(`[Possible download detected] ${url} triggered a file download, routing to asset downloader`);
           const res = await this.assetDownloader.downloadMany([url]);
           if (res.size > 0) {
@@ -367,6 +398,18 @@ export class Crawler {
         this.logger.warn(`Navigation failed for ${url}: ${msg}`);
         this.failedPages.push({ url, depth });
         return; // Skip this page
+      }
+
+      const pageText = await page.evaluate(() => document.documentElement?.innerText || '');
+      if (pageText.includes(FLOOD_PROTECTION_MESSAGE)) {
+        this.queue.unshift({ url, depth });
+        this.crawlStopped = true;
+        this.logger.warn(`Flood protection detected at ${url}. The page was not saved.`);
+        return;
+      }
+      if (this.crawlStopped) {
+        this.queue.unshift({ url, depth });
+        return;
       }
 
       // Check if the page redirected to a different URL
@@ -409,6 +452,10 @@ export class Crawler {
 
         // Still extract links from this page so we don't miss anything
         const { links, assets } = await this._extractUrlsFromPage(page, finalUrl);
+        if (this.crawlStopped) {
+          this.queue.unshift({ url, depth });
+          return;
+        }
         await this.assetDownloader.downloadMany(assets);
 
         if (depth < this.maxDepth) {
@@ -452,6 +499,10 @@ export class Crawler {
       const { links, assets } = await this._extractUrlsFromPage(page, url);
 
       // Download all discovered assets
+      if (this.crawlStopped) {
+        this.queue.unshift({ url, depth });
+        return;
+      }
       await this.assetDownloader.downloadMany(assets);
 
       // Enqueue discovered internal links
@@ -474,6 +525,9 @@ export class Crawler {
           }
         }
         if (foundAssets.length > 0) {
+          if (this.crawlStopped) {
+            return;
+          }
           await this.assetDownloader.downloadMany(foundAssets);
         }
       }
